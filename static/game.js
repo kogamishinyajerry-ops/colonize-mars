@@ -435,30 +435,8 @@ function renderHex(hex, cx, cy, clickable) {
   return `<g><polygon class="${cls}" points="${pts}" data-r="${hex.row}" data-c="${hex.col}"/>${extras}</g>`;
 }
 
-// ═══════════ 手牌渲染 ═══════════
-function renderHand() {
-  const me = state.players.find(p => !p.is_ai);
-  if (!me) {
-    document.getElementById("hand-title").textContent = "(观战模式)";
-    document.getElementById("hand-cards").innerHTML = "";
-    return;
-  }
-  document.getElementById("hand-title").textContent = `手牌 (${me.hand.length})`;
-
-  // 当前合法可打出的卡（来自 pending action 列表）
-  const playable = new Set();
-  if (state.pending && state.pending.type === "action") {
-    for (const a of state.pending.legal) {
-      if (a.kind === "play_card") playable.add(a.card_id);
-    }
-  }
-
-  const cont = document.getElementById("hand-cards");
-  cont.innerHTML = me.hand.map(c => renderCard(c, {playable: playable.has(c.id)})).join("");
-  cont.querySelectorAll(".card").forEach((el, i) => {
-    el.addEventListener("click", () => showCardDetail(me.hand[i]));
-  });
-}
+// ═══════════ 手牌渲染 — 旧函数已被 renderRightBody 替换 ═══════════
+function renderHand() { /* deprecated */ }
 
 function renderCard(c, opts = {}) {
   const tags = c.tags.map(t => `<span class="tag tag-${t}">${t}</span>`).join("");
@@ -481,140 +459,488 @@ function showCardDetail(c) {
   z.classList.remove("hidden");
 }
 
-// ═══════════ 决策面板 ═══════════
+// ═══════════ 决策面板（重构版）═══════════
+
+let activeTab = "cards";    // 当前 action tab
+let lastActionPendingKey = null;   // 用于 tab 持久化
+
 function renderDecision() {
-  const panel = document.getElementById("decision-panel");
+  const turnBar = document.getElementById("turn-status");
+  const tabs = document.getElementById("action-tabs");
+  const passBar = document.getElementById("pass-bar");
+  const placementHint = document.getElementById("placement-hint");
+  const body = document.getElementById("right-body");
+
+  // 默认隐藏所有
+  tabs.classList.add("hidden");
+  passBar.classList.add("hidden");
+  placementHint.classList.add("hidden");
+
   if (!state.pending) {
+    closeBigModal();
     if (state.done) {
-      panel.innerHTML = `<div class="decision-empty">🏁 游戏结束</div>`;
+      turnBar.textContent = "🏁 游戏结束";
+      turnBar.className = "turn-status";
+      body.innerHTML = `<div class="tab-empty">游戏已结束 — 见终局排名</div>`;
     } else {
       const cur = state.players[state.current_player_idx];
-      panel.innerHTML = `<div class="decision-empty">⏳ 等待 P${state.current_player_idx} (${escape(cur ? cur.name : '?')}) 行动...</div>`;
+      turnBar.textContent = `⏳ 等待 P${state.current_player_idx} ${cur ? cur.name : "?"} 行动...`;
+      turnBar.className = "turn-status";
+      // 显示自己手牌（只读）
+      renderHandReadOnly(body);
     }
     pendingHandled = null;
     return;
   }
-  const pkey = JSON.stringify(state.pending).slice(0, 200);
-  if (pkey === pendingHandled) return; // 同一个 pending 不重渲染
-  pendingHandled = pkey;
-  researchKept = new Set();
 
+  const pkey = JSON.stringify(state.pending).slice(0, 300);
   const t = state.pending.type;
-  if (t === "corp") renderCorpChoice(panel);
-  else if (t === "research") renderResearch(panel);
-  else if (t === "action") renderActionMenu(panel);
-  else if (t === "hex") renderHexPick(panel);
+  const isMyTurn = state.players[state.pending.player_idx]
+                   && !state.players[state.pending.player_idx].is_ai;
+
+  // 状态条
+  const myName = state.players[state.pending.player_idx]?.name || "?";
+  if (isMyTurn) {
+    turnBar.textContent = `🎮 ${state.pending.prompt} (P${state.pending.player_idx} ${myName})`;
+    turnBar.className = "turn-status your-turn";
+  } else {
+    turnBar.textContent = `🤖 等待 AI P${state.pending.player_idx}: ${state.pending.prompt}`;
+    turnBar.className = "turn-status";
+  }
+
+  // 公司/研究 → 全屏大模态
+  if (t === "corp") {
+    if (pkey !== pendingHandled) {
+      pendingHandled = pkey;
+      openCorpModal();
+    }
+    renderHandReadOnly(body);   // 模态打开后右栏仍可见自己手牌
+    return;
+  }
+  if (t === "research") {
+    if (pkey !== pendingHandled) {
+      pendingHandled = pkey;
+      researchKept = new Set();
+      openResearchModal();
+    }
+    renderHandReadOnly(body);
+    return;
+  }
+
+  // 关闭可能残留的模态
+  closeBigModal();
+
+  if (t === "hex") {
+    pendingHandled = pkey;
+    placementHint.classList.remove("hidden");
+    const kindLabels = {ocean: "🌊 海洋", greenery: "🌱 绿地", city: "🏙 城市"};
+    placementHint.innerHTML = `🎯 选择放置位置：<strong>${kindLabels[state.pending.kind] || state.pending.kind}</strong><br>
+      <span style="opacity:0.8;font-size:11px">点击棋盘上发光的格子，或下方备选列表</span>`;
+    renderHexFallback(body);
+    return;
+  }
+
+  if (t === "action") {
+    // tab 持久化（只在 pending 切换时重置）
+    if (pkey !== lastActionPendingKey) {
+      lastActionPendingKey = pkey;
+      // 自动选最有内容的 tab
+      activeTab = pickBestTab();
+    }
+    pendingHandled = pkey;
+    tabs.classList.remove("hidden");
+    if (isMyTurn) passBar.classList.remove("hidden");
+    renderActionTabs(body);
+    return;
+  }
 }
 
-function renderCorpChoice(panel) {
-  const opts = state.pending.options;
-  let html = `<h3>${escape(state.pending.prompt)}</h3><div class="corp-options">`;
-  for (let i = 0; i < opts.length; i++) {
-    const c = opts[i];
-    html += `<div class="corp-option" data-i="${i}">
-      <div class="corp-name">${escape(c.name)}</div>
-      <div class="corp-desc">${escape(c.description)}</div>
-    </div>`;
+// ─── 计算各 tab 的动作数 ───
+function bucketActions() {
+  const buckets = {cards: [], projects: [], blue: [], other: []};
+  if (!state.pending || state.pending.type !== "action") return buckets;
+  for (const a of state.pending.legal) {
+    if (a.kind === "play_card") buckets.cards.push(a);
+    else if (a.kind === "std_project") buckets.projects.push(a);
+    else if (a.kind === "blue_action") buckets.blue.push(a);
+    else if (a.kind === "pass") {} // pass 单独按钮
+    else buckets.other.push(a);
   }
+  return buckets;
+}
+
+function pickBestTab() {
+  const b = bucketActions();
+  // 优先选玩家手上有的（手牌 > 项目 > 行动 > 其它）
+  if (b.cards.length > 0) return "cards";
+  if (b.projects.length > 1) return "projects";
+  if (b.blue.length > 0) return "blue";
+  return "other";
+}
+
+// ─── Tab 行计数 + 切换 ───
+function updateTabCounts() {
+  const b = bucketActions();
+  const me = state.players.find(p => !p.is_ai);
+  const handCount = me ? me.hand.length : 0;
+  document.getElementById("tab-cards-count").textContent = b.cards.length;
+  document.getElementById("tab-projects-count").textContent = b.projects.length;
+  document.getElementById("tab-blue-count").textContent = b.blue.length;
+  document.getElementById("tab-other-count").textContent = b.other.length;
+  // empty tabs
+  document.querySelectorAll(".action-tabs .tab").forEach(el => {
+    const k = el.dataset.tab;
+    const count = b[k]?.length ?? 0;
+    el.classList.toggle("empty", count === 0 && k !== "cards");
+    el.classList.toggle("active", k === activeTab);
+  });
+}
+
+document.getElementById("action-tabs").addEventListener("click", (e) => {
+  const tab = e.target.closest(".tab");
+  if (!tab || tab.classList.contains("empty")) return;
+  activeTab = tab.dataset.tab;
+  document.querySelectorAll(".action-tabs .tab").forEach(el =>
+    el.classList.toggle("active", el.dataset.tab === activeTab));
+  renderActionTabs(document.getElementById("right-body"));
+});
+
+document.getElementById("btn-pass").addEventListener("click", () => {
+  if (!state.pending || state.pending.type !== "action") return;
+  const passAct = state.pending.legal.find(a => a.kind === "pass");
+  if (passAct) {
+    if (confirm("跳过本代余下回合？（生产阶段后才能继续）")) {
+      submitAnswer({index: passAct.index});
+    }
+  }
+});
+
+// ─── 渲染当前 tab 内容 ───
+function renderActionTabs(body) {
+  updateTabCounts();
+  const b = bucketActions();
+  const list = b[activeTab] || [];
+
+  if (activeTab === "cards") {
+    renderCardActionTab(body, list);
+  } else {
+    renderActionRows(body, list, activeTab);
+  }
+}
+
+// 卡牌 tab：显示完整手牌，可玩高亮，不可玩说明原因
+function renderCardActionTab(body, playableActions) {
+  const me = state.players.find(p => !p.is_ai);
+  if (!me) {
+    body.innerHTML = `<div class="tab-empty">观战模式 — 由 AI 自动决策</div>`;
+    return;
+  }
+  if (me.hand.length === 0) {
+    body.innerHTML = `<div class="tab-empty">手牌为空<br><span style="font-size:10px">研究阶段或地块奖励可获得新卡</span></div>`;
+    return;
+  }
+  const playableMap = new Map(playableActions.map(a => [a.card_id, a]));
+
+  let html = `<div class="hand-grid">`;
+  me.hand.forEach((c, i) => {
+    const action = playableMap.get(c.id);
+    const playable = !!action;
+    const reason = playable ? "" : whyUnplayable(c, me);
+    const keyHint = (playable && i < 9) ? `<span class="play-key">${i+1}</span>` : "";
+    const reasonTag = reason ? `<span class="reason">${escape(reason)}</span>` : "";
+    html += `<div class="card type-${c.type} ${playable ? "playable" : "disabled"}"
+                  data-id="${c.id}" data-action-idx="${action ? action.index : -1}">
+      <div class="c-head">
+        <span class="c-name">${escape(c.name)}${c.vp ? `<span class="c-vp">${c.vp>0?'+':''}${c.vp}VP</span>` : ""}</span>
+        <span class="c-cost">${c.cost}M$</span>
+      </div>
+      <div class="c-tags">${c.tags.map(t => `<span class="tag tag-${t}">${t}</span>`).join("")}</div>
+      <div class="c-desc">${escape(c.description)}</div>
+      ${reasonTag}${keyHint}
+    </div>`;
+  });
   html += `</div>`;
-  panel.innerHTML = html;
-  panel.querySelectorAll(".corp-option").forEach(el => {
+  body.innerHTML = html;
+
+  body.querySelectorAll(".card").forEach(el => {
     el.addEventListener("click", () => {
-      submitAnswer({index: parseInt(el.dataset.i)});
+      const idx = parseInt(el.dataset.actionIdx);
+      if (idx < 0) {
+        toast("此卡当前无法打出");
+        return;
+      }
+      submitAnswer({index: idx});
     });
   });
 }
 
-function renderResearch(panel) {
-  const drawn = state.pending.drawn;
-  let html = `<h3>${escape(state.pending.prompt)}</h3>
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">
-      你的 MC: ${state.pending.mc} · 选 N 张需付 N×3 MC
-    </div>
-    <div class="research-list">`;
-  for (let i = 0; i < drawn.length; i++) {
-    const c = drawn[i];
-    const tags = c.tags.map(t => `<span class="tag tag-${t}">${t}</span>`).join("");
-    html += `<div class="research-card" data-i="${i}">
-      <span class="rc-cost">${c.cost}M$</span>
-      <span class="rc-name">${escape(c.name)}<div class="rc-tags" style="font-size:10px">${tags} ${escape(c.description.slice(0,60))}</div></span>
+// 推断卡牌为何不可玩
+function whyUnplayable(card, me) {
+  // 简单启发：先看 MC（不算钢钛抵扣）
+  if (me.resources.mc + me.resources.steel * 2 + me.resources.titanium * 3 < card.cost) {
+    return "MC 不足";
+  }
+  return "需求未达";
+}
+
+// 项目/行动/其它 tab：用 action-row 渲染
+function renderActionRows(body, list, tab) {
+  if (list.length === 0) {
+    const tabName = {projects: "标准项目", blue: "蓝卡行动", other: "其它"}[tab] || "动作";
+    body.innerHTML = `<div class="tab-empty">无可用${tabName}</div>`;
+    return;
+  }
+  const ICONS = {
+    std_project: "🏗", blue_action: "🔵",
+    claim_milestone: "🏆", fund_award: "🏅",
+    convert_plants: "🌱", convert_heat: "🔥",
+    dlc_sabotage: "⚔", dlc_spy: "🕵", dlc_nap: "📜", dlc_aid: "🤝",
+  };
+  let html = `<div class="action-group">`;
+  list.forEach((a, i) => {
+    const ic = ICONS[a.kind] || "▶";
+    const k = i < 9 ? `<span class="key">${i+1}</span>` : "";
+    html += `<div class="action-row" data-i="${a.index}">
+      <span class="ico">${ic}</span>
+      <span class="body">${escape(a.label)}</span>
+      ${k}
+    </div>`;
+  });
+  html += `</div>`;
+  body.innerHTML = html;
+  body.querySelectorAll(".action-row").forEach(el => {
+    el.addEventListener("click", () => submitAnswer({index: parseInt(el.dataset.i)}));
+  });
+}
+
+// ─── hex pick：右栏只显示备选列表（次要），主操作在棋盘上 ───
+function renderHexFallback(body) {
+  const ch = state.pending.choices;
+  let html = `<div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">
+    备选列表（${ch.length} 个合法位置）：
+  </div><div class="hand-grid">`;
+  for (const h of ch.slice(0, 30)) {
+    const bonus = h.bonus ? ` 🎁${h.bonus[0]} x${h.bonus[1]}` : "";
+    const adj = h.adjacent_oceans > 0 ? ` 💧×${h.adjacent_oceans}` : "";
+    html += `<div class="action-row" data-r="${h.row}" data-c="${h.col}">
+      <span class="ico">📍</span>
+      <span class="body">(${h.row},${h.col})${bonus}${adj}</span>
     </div>`;
   }
-  html += `</div>
-    <div class="research-confirm">
-      <span id="research-cost">已选 0 张, 花费 0 MC</span>
-      <button class="btn btn-primary" id="research-go">确认</button>
-    </div>`;
-  panel.innerHTML = html;
+  html += `</div>`;
+  body.innerHTML = html;
+  body.querySelectorAll(".action-row").forEach(el => {
+    el.addEventListener("click", () => {
+      submitAnswer({row: parseInt(el.dataset.r), col: parseInt(el.dataset.c)});
+    });
+  });
+}
 
-  panel.querySelectorAll(".research-card").forEach(el => {
+// 等待时显示自己的手牌（只读）
+function renderHandReadOnly(body) {
+  const me = state.players.find(p => !p.is_ai);
+  if (!me || me.hand.length === 0) {
+    body.innerHTML = `<div class="tab-empty">${me ? '手牌为空' : '观战模式'}</div>`;
+    return;
+  }
+  let html = `<div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">
+    你的手牌 (${me.hand.length})
+  </div><div class="hand-grid">`;
+  me.hand.forEach(c => {
+    html += `<div class="card type-${c.type}" data-id="${c.id}">
+      <div class="c-head">
+        <span class="c-name">${escape(c.name)}${c.vp ? `<span class="c-vp">${c.vp>0?'+':''}${c.vp}VP</span>` : ""}</span>
+        <span class="c-cost">${c.cost}M$</span>
+      </div>
+      <div class="c-tags">${c.tags.map(t => `<span class="tag tag-${t}">${t}</span>`).join("")}</div>
+      <div class="c-desc">${escape(c.description)}</div>
+    </div>`;
+  });
+  html += `</div>`;
+  body.innerHTML = html;
+  body.querySelectorAll(".card").forEach(el => {
+    el.addEventListener("click", () => {
+      const c = me.hand.find(x => x.id === parseInt(el.dataset.id));
+      if (c) showCardDetail(c);
+    });
+  });
+}
+
+// ═══════════ 全屏大模态 ═══════════
+function openBigModal(title, subtitle, bodyHtml, footerHtml = "", onClose = null) {
+  const modal = document.getElementById("big-modal");
+  document.getElementById("big-modal-title").textContent = title;
+  document.getElementById("big-modal-subtitle").textContent = subtitle || "";
+  document.getElementById("big-modal-body").innerHTML = bodyHtml;
+  document.getElementById("big-modal-footer").innerHTML = footerHtml;
+  modal._onClose = onClose;
+  modal.classList.remove("hidden");
+}
+
+function closeBigModal() {
+  const m = document.getElementById("big-modal");
+  m.classList.add("hidden");
+  if (m._onClose) m._onClose();
+  m._onClose = null;
+}
+
+document.getElementById("big-modal-close").addEventListener("click", () => {
+  // 关闭按钮：仅当 pending 不强制时允许
+  if (state && state.pending && (state.pending.type === "corp" || state.pending.type === "research")) {
+    toast("必须完成当前选择才能关闭");
+    return;
+  }
+  closeBigModal();
+});
+
+// ─── 公司选择模态 ───
+function openCorpModal() {
+  const opts = state.pending.options;
+  const CORP_ICONS = {
+    "CrediCor": "💰", "Helion": "🔥", "Mining Guild": "⛏",
+    "Tharsis": "🏙", "Inventrix": "🔬", "EcoLine": "🌱",
+    "Pentagon": "⚔", "Magisterium": "🕵",
+    "新巴比伦": "⛪", "协议体": "🤖", "共生虫群": "🦠",
+  };
+  function ic(name) {
+    for (const k of Object.keys(CORP_ICONS)) {
+      if (name.includes(k)) return CORP_ICONS[k];
+    }
+    return "🏢";
+  }
+  let body = `<div class="corp-grid">`;
+  opts.forEach((c, i) => {
+    body += `<div class="corp-big" data-i="${i}">
+      <div class="corp-icon">${ic(c.name)}</div>
+      <div class="corp-name">${escape(c.name)}</div>
+      <div class="corp-desc">${escape(c.description)}</div>
+      <span class="corp-pick">选择 →</span>
+    </div>`;
+  });
+  body += `</div>`;
+  openBigModal("⚙ 选择你的公司 / 派系", state.pending.prompt, body, "");
+  document.querySelectorAll("#big-modal .corp-big").forEach(el => {
+    el.addEventListener("click", () => {
+      const i = parseInt(el.dataset.i);
+      submitAnswer({index: i});
+      closeBigModal();
+    });
+  });
+}
+
+// ─── 研究模态 ───
+function openResearchModal() {
+  const drawn = state.pending.drawn;
+  const myMC = state.pending.mc;
+  let body = `<div class="research-grid">`;
+  drawn.forEach((c, i) => {
+    const tags = c.tags.map(t => `<span class="tag tag-${t}">${t}</span>`).join("");
+    body += `<div class="research-big" data-i="${i}">
+      <div class="rb-head">
+        <span class="rb-name">${escape(c.name)}${c.vp ? `<span class="rb-vp">${c.vp>0?'+':''}${c.vp}VP</span>` : ""}</span>
+        <span class="rb-cost">${c.cost}M$</span>
+      </div>
+      <div class="rb-tags">${tags}</div>
+      <div class="rb-desc">${escape(c.description)}</div>
+    </div>`;
+  });
+  body += `</div>`;
+  const footer = `
+    <div class="research-summary">
+      已选 <span class="num" id="rs-n">0</span> 张 ·
+      花费 <span class="num" id="rs-cost">0</span> MC
+      <span style="color:var(--text-dim);font-size:11px;margin-left:8px">
+        (你有 ${myMC}MC, 至多可买 ${Math.min(drawn.length, Math.floor(myMC/3))} 张)
+      </span>
+    </div>
+    <button class="btn btn-primary" id="rs-go">确认选择</button>`;
+  openBigModal("📚 研究阶段", state.pending.prompt, body, footer);
+
+  function updateSum() {
+    document.getElementById("rs-n").textContent = researchKept.size;
+    document.getElementById("rs-cost").textContent = researchKept.size * 3;
+  }
+  document.querySelectorAll("#big-modal .research-big").forEach(el => {
     el.addEventListener("click", () => {
       const i = parseInt(el.dataset.i);
       if (researchKept.has(i)) {
         researchKept.delete(i);
         el.classList.remove("kept");
       } else {
+        // 检查 MC 上限
+        if ((researchKept.size + 1) * 3 > myMC) {
+          toast("MC 不足，无法再选");
+          return;
+        }
         researchKept.add(i);
         el.classList.add("kept");
       }
-      const n = researchKept.size;
-      document.getElementById("research-cost").textContent =
-        `已选 ${n} 张, 花费 ${n*3} MC`;
+      updateSum();
     });
   });
-  document.getElementById("research-go").addEventListener("click", () => {
+  document.getElementById("rs-go").addEventListener("click", () => {
     submitAnswer({indices: [...researchKept].sort((a,b)=>a-b)});
+    closeBigModal();
   });
 }
 
-function renderActionMenu(panel) {
-  const legal = state.pending.legal;
-  let html = `<h3>${escape(state.pending.prompt)}</h3><div class="action-list">`;
-  for (const a of legal) {
-    let kindIcon = "";
-    if (a.kind === "play_card") kindIcon = "🃏 ";
-    else if (a.kind === "std_project") kindIcon = "🏗 ";
-    else if (a.kind === "blue_action") kindIcon = "🔵 ";
-    else if (a.kind === "claim_milestone") kindIcon = "🏆 ";
-    else if (a.kind === "fund_award") kindIcon = "🏅 ";
-    else if (a.kind === "convert_plants") kindIcon = "🌱 ";
-    else if (a.kind === "convert_heat") kindIcon = "🔥 ";
-    else if (a.kind === "pass") kindIcon = "⏸ ";
-    html += `<button class="btn btn-action" data-i="${a.index}">${kindIcon}${escape(a.label)}</button>`;
-  }
-  html += `</div>`;
-  panel.innerHTML = html;
-  panel.querySelectorAll(".btn-action").forEach(el => {
-    el.addEventListener("click", () => {
-      submitAnswer({index: parseInt(el.dataset.i)});
-    });
-  });
+// ═══════════ Toast ═══════════
+let toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.remove("hidden");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.add("hidden"), 1800);
 }
 
-function renderHexPick(panel) {
-  const ch = state.pending.choices;
-  const kind = state.pending.kind;
-  const kindLabels = {ocean: "🌊 海洋", greenery: "🌱 绿地", city: "🏙 城市"};
-  let html = `<h3>放置 ${kindLabels[kind] || kind}</h3>
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">
-      可点击棋盘上闪烁的格子，或在下方选择：
-    </div>
-    <div class="hex-pick-list">`;
-  for (const h of ch.slice(0, 60)) {
-    const bonus = h.bonus ? ` 🎁${h.bonus[0][0]}${h.bonus[1]>1?h.bonus[1]:""}` : "";
-    const adj = h.adjacent_oceans > 0 ? ` 💧${h.adjacent_oceans}` : "";
-    html += `<div class="hex-pick-item" data-r="${h.row}" data-c="${h.col}">
-      (${h.row},${h.col})${bonus}${adj}
-    </div>`;
+// ═══════════ 键盘快捷键 ═══════════
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "Escape") {
+    // ESC 关闭非必要模态
+    if (!state || !state.pending || (state.pending.type !== "corp" && state.pending.type !== "research")) {
+      closeBigModal();
+    }
+    return;
   }
-  html += `</div>`;
-  panel.innerHTML = html;
-  panel.querySelectorAll(".hex-pick-item").forEach(el => {
-    el.addEventListener("click", () => {
-      submitAnswer({row: parseInt(el.dataset.r), col: parseInt(el.dataset.c)});
-    });
-  });
-}
+  if (!state || !state.pending) return;
+
+  // 数字键 1-9 选当前 tab 的第 N 个
+  if (e.key >= "1" && e.key <= "9") {
+    const n = parseInt(e.key) - 1;
+    const t = state.pending.type;
+    if (t === "action") {
+      const b = bucketActions();
+      const list = b[activeTab] || [];
+      if (n < list.length) {
+        submitAnswer({index: list[n].index});
+      }
+    } else if (t === "corp") {
+      const opts = state.pending.options;
+      if (n < opts.length) submitAnswer({index: n});
+    }
+  }
+  // P 键 = pass
+  if (e.key === "p" || e.key === "P") {
+    if (state.pending.type === "action") {
+      const passAct = state.pending.legal.find(a => a.kind === "pass");
+      if (passAct) submitAnswer({index: passAct.index});
+    }
+  }
+  // T 键切 tab
+  if (state.pending.type === "action") {
+    const order = ["cards", "projects", "blue", "other"];
+    const cur = order.indexOf(activeTab);
+    if (e.key === "Tab") {
+      e.preventDefault();
+      activeTab = order[(cur + 1) % order.length];
+      document.querySelectorAll(".action-tabs .tab").forEach(el =>
+        el.classList.toggle("active", el.dataset.tab === activeTab));
+      renderActionTabs(document.getElementById("right-body"));
+    }
+  }
+});
 
 // ═══════════ 提交答案 ═══════════
 async function submitAnswer(ans) {

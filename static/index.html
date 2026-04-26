@@ -128,14 +128,34 @@
       </div>
     </section>
 
-    <!-- 右：手牌 + 决策面板 -->
+    <!-- 右：决策中心（重构版）-->
     <aside class="right-panel">
-      <div class="decision-panel" id="decision-panel">
-        <div class="decision-empty">等待状态...</div>
+      <!-- 顶部状态条 -->
+      <div class="turn-bar" id="turn-bar">
+        <div class="turn-status" id="turn-status">等待...</div>
       </div>
-      <div class="hand-area">
-        <h3 id="hand-title">手牌 (0)</h3>
-        <div class="hand-cards" id="hand-cards"></div>
+
+      <!-- 顶部提示（hex 放置时显示）-->
+      <div class="placement-hint hidden" id="placement-hint">
+        🎯 点击棋盘上发光的格子选择放置位置
+      </div>
+
+      <!-- Tab 行：仅在 action pending 时显示 -->
+      <div class="action-tabs hidden" id="action-tabs">
+        <button class="tab" data-tab="cards">🃏 手牌 <span class="tab-count" id="tab-cards-count">0</span></button>
+        <button class="tab" data-tab="projects">🏗 项目 <span class="tab-count" id="tab-projects-count">0</span></button>
+        <button class="tab" data-tab="blue">🔵 行动 <span class="tab-count" id="tab-blue-count">0</span></button>
+        <button class="tab" data-tab="other">🏆 其它 <span class="tab-count" id="tab-other-count">0</span></button>
+      </div>
+
+      <!-- 主内容区：根据上下文切换 -->
+      <div class="right-body" id="right-body">
+        <div class="decision-empty">点击「开始游戏」加载...</div>
+      </div>
+
+      <!-- 始终可见的 PASS 按钮 -->
+      <div class="pass-bar hidden" id="pass-bar">
+        <button class="btn btn-pass" id="btn-pass">⏸ 跳过本代余下回合</button>
       </div>
     </aside>
   </main>
@@ -157,10 +177,26 @@
   </div>
 </div>
 
-<!-- 卡牌细节弹窗 -->
+<!-- 全屏大模态：公司选择 / 研究 / 卡牌详情 / 手牌总览 -->
+<div id="big-modal" class="big-modal hidden">
+  <div class="big-modal-content">
+    <div class="big-modal-header">
+      <h2 id="big-modal-title">标题</h2>
+      <span id="big-modal-subtitle" class="big-modal-subtitle"></span>
+      <button class="btn btn-ghost big-modal-close" id="big-modal-close" title="ESC 关闭">✕</button>
+    </div>
+    <div class="big-modal-body" id="big-modal-body"></div>
+    <div class="big-modal-footer" id="big-modal-footer"></div>
+  </div>
+</div>
+
+<!-- 卡牌细节弹窗（小，hover 用）-->
 <div id="card-zoom" class="card-zoom hidden" onclick="this.classList.add('hidden')">
   <div id="card-zoom-content" onclick="event.stopPropagation()"></div>
 </div>
+
+<!-- 操作浮动提示（toast）-->
+<div id="toast" class="toast hidden"></div>
 
 <script src="/static/game.js"></script>
 </body>
