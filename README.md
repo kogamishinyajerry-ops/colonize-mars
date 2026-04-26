@@ -12,6 +12,20 @@
 
 ## 演示
 
+### 真实游戏快照（4 玩家 AI 自对弈 · seed 42）
+
+下面 3 张是同一局游戏在 **早/中/末期** 的真实棋盘状态（由 `tools/generate_demo_snapshots.py` 渲染为 SVG）：
+
+<table>
+<tr>
+<td align="center"><b>世代 1 · 起手</b><br><img src="docs/demos/snap_gen01.svg" width="280" alt="第1代棋盘"></td>
+<td align="center"><b>世代 5 · 中盘</b><br><img src="docs/demos/snap_gen05.svg" width="280" alt="第5代棋盘"></td>
+<td align="center"><b>终局 · 三参数全满</b><br><img src="docs/demos/snap_final.svg" width="280" alt="终局棋盘"></td>
+</tr>
+</table>
+
+每张图含：完整 9 行六边形棋盘 · 板块（~海洋 · Y绿地 · ■城市）· 拥有者编号圆点 · 地块奖励 · 全球参数 · 玩家排名。
+
 ### CLI 自对弈样例（基础模式 · 4 玩家 · seed 42）
 
 ```
@@ -219,6 +233,15 @@ $ python3 -m pytest tests/ -q
 - 10 项 DLC 集成（单 DLC 跑通 + 多 DLC 共存 + 存档读写 + 难度档位 + 基础不退化）
 - 6 项 bug 修复回归（卡库扩容/洗牌/total_vp 状态/事件标签/AI DLC 决策/防御性）
 
+## 重新生成演示快照
+
+```bash
+python3 tools/generate_demo_snapshots.py
+# → 写入 docs/demos/snap_gen01.svg / snap_gen05.svg / snap_final.svg
+```
+
+每张 SVG 自带全棋盘 + 全球参数 + 玩家排名，可直接嵌入文档或导入 Figma / Inkscape 二次编辑。
+
 ## 项目结构
 
 ```
@@ -228,6 +251,10 @@ colonize-mars/
 ├── requirements.txt
 ├── README.md / LICENSE
 ├── .github/workflows/ci.yml # GitHub Actions (pytest × Python 3.9/3.11/3.12)
+├── tools/
+│   ├── render_board_svg.py  # 状态→SVG 渲染器
+│   └── generate_demo_snapshots.py
+├── docs/demos/              # 自动生成的棋盘快照
 ├── game/
 │   ├── resources.py         # 资源/标签/卡类型
 │   ├── board.py             # 61 格六边形棋盘 + 邻接
