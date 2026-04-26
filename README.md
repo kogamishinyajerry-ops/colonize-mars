@@ -1,6 +1,72 @@
 # 殖民火星 (Colonize Mars)
 
-德式策略桌游 *Terraforming Mars* 的 Python CLI 实现。**完全由 Claude (Opus 4.7) 从零逆向工程**，单个会话约 2 小时完成。
+[![CI](https://github.com/kogamishinyajerry-ops/colonize-mars/actions/workflows/ci.yml/badge.svg)](https://github.com/kogamishinyajerry-ops/colonize-mars/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.9%20%7C%203.11%20%7C%203.12-blue)
+![Tests](https://img.shields.io/badge/tests-34%20passing-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-lightgrey)
+
+德式策略桌游 *Terraforming Mars* 的 Python + Flask 完整实现，含 **3 个风格各异的 DLC**。
+**完全由 Claude (Opus 4.7) 在单个会话内自主开发** —— 从规则逆向工程到 Web UI 到 DLC 设计。
+
+---
+
+## 演示
+
+### CLI 自对弈样例（基础模式 · 4 玩家 · seed 42）
+
+```
+═══ 世代 1 开始 ═══
+  🌱 P0 放置绿地于 (0,1)  +1VP
+  🌫 氧气↑ → 1%  (TR+1, P0)
+  🌊 P3 放置海洋于 (5,7)  TR+1, 海洋 1/9
+═══ 世代 5 开始 ═══
+  🌡 温度↑ → -20°C  (TR+1, P2)
+  🌡 奖励：P2 热产能+1
+  ▶ P1 打出「Geothermal Power 地热发电」 (花费 5M$ + 3钢)
+═══ 世代 9 开始 ═══
+  🔁 弃牌堆洗回卡组 (24 张)
+  🌫 氧气↑ → 14%  (TR+1, P0)
+🌍 三大全球参数已达上限！本代结束后终局。
+═════════ 游戏结束 · 终局结算 ═════════
+🏆 胜者: P3 (AI-3) — 56VP
+```
+
+### DLC III「红色风暴」灾害日志（hard 难度 · seed 99）
+
+```
+═══ 世代 1 开始 ═══
+  🚨 灾害降临：Phobos 偏离「全员 -2 TR」 (+5 威胁)
+═══ 世代 2 开始 ═══
+  🚨 灾害降临：太阳耀斑「全员能源清零」 (+3 威胁)
+═══ 世代 3 开始 ═══
+  🚨 灾害降临：反应堆熔毁「高能源产能玩家 -2」 (+4 威胁)
+  🤝 P0 → P1 : 5 mc (实际 +5)
+  🤝 P2 → P0 : 2 plants (实际 +2)
+═══ 世代 7 开始 ═══
+  🚨 灾害降临：补给船失踪「全员钢/钛 -5」 (+2 威胁)
+  🚒 P1 应急响应：威胁 -3 → 16
+```
+
+### Web UI 概览
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ 🚀 殖民火星  🌡 -10°C ▓▓▓░░  🌫 6% ▓▓░  🌊 3/9 ▓░  世代5 │
+├────────────┬──────────────────────────┬──────────────────┤
+│  玩家面板  │   火星六边形棋盘 (61格)  │  当前决策面板    │
+│ ● P0 (你)  │   可点击 hex             │  - 打出 X (12M$) │
+│ ● P1 AI    │   🌊 🌱 🏙 板块图标      │  - 标准项目: 绿地│
+│ ● P2 AI    │   🎁 地块奖励            │  - 跳过          │
+│ ● P3 AI    │   色彩区分火山/Noctis    ├──────────────────┤
+│            │                          │  🃏 手牌区       │
+│ 里程碑     │                          │   可玩卡发光     │
+│ 奖励       │                          │   点击放大       │
+├────────────┴──────────────────────────┴──────────────────┤
+│ 📜 战报 (滚动日志，世代/参数变更彩色高亮)                  │
+└──────────────────────────────────────────────────────────┘
+```
+
+启用 DLC 后会附加面板：DLC III 顶部出现脉冲威胁条；DLC I 玩家卡内显示 ⚔Force/🕵Intel；DLC II 出现派系徽章 (信仰/算力/生物质)。
 
 ---
 
@@ -151,3 +217,50 @@ $ python3 -m pytest tests/ -q
 
 - 18 项基础规则（资源/产能/参数/棋盘/卡牌/里程碑/AI 自对弈/确定性回放）
 - 10 项 DLC 集成（单 DLC 跑通 + 多 DLC 共存 + 存档读写 + 难度档位 + 基础不退化）
+- 6 项 bug 修复回归（卡库扩容/洗牌/total_vp 状态/事件标签/AI DLC 决策/防御性）
+
+## 项目结构
+
+```
+colonize-mars/
+├── main.py                  # CLI 入口
+├── server.py                # Flask Web 服务器
+├── requirements.txt
+├── README.md / LICENSE
+├── .github/workflows/ci.yml # GitHub Actions (pytest × Python 3.9/3.11/3.12)
+├── game/
+│   ├── resources.py         # 资源/标签/卡类型
+│   ├── board.py             # 61 格六边形棋盘 + 邻接
+│   ├── cards.py             # 卡牌基类 + 效果原语
+│   ├── card_library.py      # 132 张项目卡 + 6 公司卡
+│   ├── projects.py          # 7 标准项目
+│   ├── milestones.py        # 5 里程碑 + 5 奖励
+│   ├── state.py             # GameState + Player + 抽牌洗牌
+│   ├── actions.py           # 动作枚举/合法性/执行
+│   ├── engine.py            # 世代循环 + 板块放置 + 终局
+│   ├── ai.py                # AI 启发式（含 DLC 评分）
+│   ├── cli.py               # CLI 决策接口
+│   ├── web_session.py       # Web 会话（后台线程 + 决策队列）
+│   └── dlc/
+│       ├── base.py          # DLC 基类与管理器（12 钩子）
+│       ├── orbital.py       # DLC I 轨道战争
+│       ├── parallel.py      # DLC II 平行火星 + 战役/存档
+│       └── crimson.py       # DLC III 红色风暴
+├── static/
+│   ├── index.html           # SPA
+│   ├── style.css            # 自定义主题 (火星橙)
+│   └── game.js              # 棋盘 SVG / 决策面板 / 轮询
+└── tests/
+    ├── test_game.py         # 18 项基础回归
+    └── test_dlcs.py         # 16 项 DLC + 修复回归
+```
+
+## 致谢
+
+- 桌游原作 *Terraforming Mars* 设计：Jacob Fryxelius（FryxGames 出版）
+- 完全自主开发：[Claude Code (Opus 4.7)](https://www.anthropic.com/claude/claude-4)
+- 本仓库为爱好者复刻，仅供学习交流，与官方发行商无关
+
+## License
+
+MIT — 详见 [LICENSE](LICENSE)

@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: pytest (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run pytest
+        run: pytest tests/ -v --tb=short
+
+      - name: AI 自对弈冒烟测试 (4 玩家 30 代)
+        run: python main.py --auto --seed 42 --max-gen 30 --quiet
+
+      - name: AI 自对弈 + DLC 全开
+        run: |
+          python -c "
+          import random
+          from game.state import GameState, Player
+          from game.engine import Engine
+          from game.ai import make_ai_decision_fns
+          from game.dlc import DLCManager
+          from game.dlc.orbital import OrbitalWarfare
+          from game.dlc.parallel import ParallelMars
+          from game.dlc.crimson import CrimsonStorm
+
+          rng = random.Random(99)
+          players = [Player(idx=i, name=f'AI-{i}', is_ai=True) for i in range(3)]
+          fns = {i: make_ai_decision_fns(seed=i+1) for i in range(3)}
+          state = GameState(players=players)
+          state.dlc_manager = DLCManager()
+          state.dlc_manager.add(OrbitalWarfare())
+          state.dlc_manager.add(ParallelMars())
+          state.dlc_manager.add(CrimsonStorm(difficulty='normal'))
+          engine = Engine(state, fns, rng=rng)
+          result = engine.run(max_generations=15)
+          print('All-DLC self-play OK, ranking:', result['ranking'])
+          "
