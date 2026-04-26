@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280">
+<title>🚀 殖民火星 · Colonize Mars</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<!-- ─────────── 启动模态 ─────────── -->
+<div id="setup-modal" class="modal-overlay">
+  <div class="modal-card" style="max-width:640px">
+    <h1>🚀 殖民火星</h1>
+    <p class="subtitle">Terraforming Mars · 含 3 个 DLC</p>
+
+    <div class="form-row">
+      <label>游戏模式</label>
+      <select id="setup-mode">
+        <option value="base" selected>基础模式</option>
+        <option value="orbital">+ DLC I：轨道战争（PvP 冷战）</option>
+        <option value="parallel">+ DLC II：平行火星（异质派系）</option>
+        <option value="parallel-campaign">+ DLC II 战役模式</option>
+        <option value="crimson">+ DLC III：红色风暴（协作）</option>
+        <option value="crimson-doom">+ DLC III 末日难度</option>
+        <option value="all">全 DLC 同时启用（混乱模式）</option>
+      </select>
+    </div>
+
+    <!-- 章节选择（仅战役模式可见） -->
+    <div class="form-row hidden" id="chapter-row">
+      <label>章节</label>
+      <div id="chapter-grid"></div>
+    </div>
+
+    <div class="form-row">
+      <label>玩家数</label>
+      <select id="setup-players">
+        <option value="2">2人</option>
+        <option value="3">3人</option>
+        <option value="4" selected>4人</option>
+        <option value="5">5人</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label>随机种子（可选）</label>
+      <input type="number" id="setup-seed" placeholder="留空=随机" />
+    </div>
+    <div class="form-row">
+      <label>你的位置</label>
+      <select id="setup-human">
+        <option value="0" selected>P0 (你是首位玩家)</option>
+        <option value="-1">观战 (全 AI 自对弈)</option>
+      </select>
+    </div>
+
+    <div id="mode-hint" class="mode-hint"></div>
+    <button id="setup-start" class="btn btn-primary">开始游戏</button>
+  </div>
+</div>
+
+<!-- ─────────── 主界面 ─────────── -->
+<div id="app" class="app hidden">
+
+  <!-- 顶部参数栏 -->
+  <header class="topbar">
+    <div class="brand">🚀 殖民火星</div>
+    <div class="param param-temp">
+      <div class="param-label">🌡 温度</div>
+      <div class="param-track">
+        <div class="param-fill" id="track-temp"></div>
+      </div>
+      <div class="param-value"><span id="val-temp">-30</span>°C / +8</div>
+    </div>
+    <div class="param param-oxy">
+      <div class="param-label">🌫 氧气</div>
+      <div class="param-track">
+        <div class="param-fill" id="track-oxy"></div>
+      </div>
+      <div class="param-value"><span id="val-oxy">0</span>% / 14%</div>
+    </div>
+    <div class="param param-ocean">
+      <div class="param-label">🌊 海洋</div>
+      <div class="param-track">
+        <div class="param-fill" id="track-ocean"></div>
+      </div>
+      <div class="param-value"><span id="val-ocean">0</span> / 9</div>
+    </div>
+    <div class="generation">世代 <span id="val-gen">1</span></div>
+    <!-- DLC III 威胁条 -->
+    <div class="threat-bar hidden" id="threat-bar">
+      <div class="threat-label">🚨 威胁</div>
+      <div class="threat-track"><div class="threat-fill" id="threat-fill"></div></div>
+      <div class="threat-value"><span id="threat-val">0</span>/<span id="threat-max">30</span></div>
+    </div>
+    <button class="btn btn-ghost" id="btn-restart">重开</button>
+  </header>
+
+  <!-- 主体三栏 -->
+  <main class="main">
+
+    <!-- 左：玩家面板 + 里程碑/奖励 -->
+    <aside class="left-panel">
+      <div class="players-list" id="players-list"></div>
+      <!-- DLC III 灾害日志 -->
+      <div class="dlc-section hidden" id="dlc-crimson-section">
+        <h3>🚨 灾害日志</h3>
+        <ul id="disasters-log"></ul>
+        <div id="next-disaster-preview" class="preview"></div>
+      </div>
+      <div class="milestones-awards">
+        <h3>🏆 里程碑 (5VP)</h3>
+        <ul id="milestones-list"></ul>
+        <h3>🏅 奖励 (5/2VP)</h3>
+        <ul id="awards-list"></ul>
+      </div>
+    </aside>
+
+    <!-- 中：火星棋盘 -->
+    <section class="board-area">
+      <svg id="mars-board" viewBox="0 0 720 660" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="board-legend">
+        <span class="lg lg-ocean">🌊 海洋</span>
+        <span class="lg lg-greenery">🌱 绿地</span>
+        <span class="lg lg-city">🏙 城市</span>
+        <span class="lg lg-volcanic">🌋 火山区</span>
+        <span class="lg lg-noctis">⭐ Noctis</span>
+        <span class="lg lg-bonus">🎁 地块奖励</span>
+      </div>
+    </section>
+
+    <!-- 右：手牌 + 决策面板 -->
+    <aside class="right-panel">
+      <div class="decision-panel" id="decision-panel">
+        <div class="decision-empty">等待状态...</div>
+      </div>
+      <div class="hand-area">
+        <h3 id="hand-title">手牌 (0)</h3>
+        <div class="hand-cards" id="hand-cards"></div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- 底部日志 -->
+  <footer class="logbar">
+    <div class="log-header">📜 战报</div>
+    <div class="log-stream" id="log-stream"></div>
+  </footer>
+
+</div>
+
+<!-- 终局模态 -->
+<div id="endgame-modal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <h1>🏁 游戏结束</h1>
+    <div id="endgame-content"></div>
+    <button class="btn btn-primary" onclick="location.reload()">再来一局</button>
+  </div>
+</div>
+
+<!-- 卡牌细节弹窗 -->
+<div id="card-zoom" class="card-zoom hidden" onclick="this.classList.add('hidden')">
+  <div id="card-zoom-content" onclick="event.stopPropagation()"></div>
+</div>
+
+<script src="/static/game.js"></script>
+</body>
+</html>

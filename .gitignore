@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+.DS_Store
+*.swp
+.venv/
+venv/
+.idea/
+.vscode/
+*.egg-info/
+dist/
+build/
+
+# 游戏存档（用户私人进度）
+saves/
+*.save.json
